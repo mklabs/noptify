@@ -40,6 +40,7 @@ function Noptify(args, options) {
   this.program = options.program || (path.basename(this.args[this.args[0] === 'node' ? 1 : 0]));
 
   this._shorthands = {};
+  this.nopt = {};
 
   this.option('help', '-h', 'Show help usage');
   this.option('version', '-v', 'Show package version');
@@ -94,8 +95,9 @@ Noptify.prototype.parse = function parse(argv) {
     process.exit(0);
   }
 
-  this.readStdin();
+  this.nopt = opts;
 
+  this.stdin();
   return opts;
 };
 
@@ -169,7 +171,6 @@ Noptify.prototype.help = function help() {
 
   buf += options.join('\n');
 
-
   // part of help input ? --list-shorthands ?
   var shorthands = Object.keys(this._shorthands);
   if(shorthands.length) {
@@ -189,18 +190,28 @@ Noptify.prototype.help = function help() {
 
 // Helpers
 
-Noptify.prototype.stdin = function stdin(done) {
-  this._readStdin = true;
-  this.once('stdin', done);
+Noptify.prototype.stdin = function stdin(force, done) {
+  if(!done) done = force, force = false;
+  var argv = this.nopt.argv;
+
+  // not parsed, register done to be read when parse is called
+  if(!argv) {
+    this.once('stdin', done);
+    return this;
+  }
+
+  // only read from stdin when no reamining args and not forced
+  if(!argv.remain.length || force) {
+    this.readStdin(done);
+  }
+
   return this;
 };
 
 Noptify.prototype.readStdin = function readStdin(done) {
   var data = '';
   var self = this;
-  this._readStdin = true;
-  done = done || function(err) { err && self.emit(err); };
-
+  done = done || function(err) { err && self.emit('error', err); };
   process.stdin.setEncoding('utf8');
   process.stdin.on('error', done);
   process.stdin.on('data', function(chunk){
@@ -208,7 +219,8 @@ Noptify.prototype.readStdin = function readStdin(done) {
     self.emit('stdin:data', chunk);
     self.emit('stdin:data', chunk);
   }).on('end', function(){
-    self.emit('stdin', data);
+    self.emit('stdin', null, data);
+    done(null, data);
   }).resume();
   return this;
 };
