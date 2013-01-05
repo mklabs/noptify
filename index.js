@@ -1,6 +1,7 @@
 
-var nopt   = require('nopt');
+var fs     = require('fs');
 var path   = require('path');
+var nopt   = require('nopt');
 var util   = require('util');
 var events = require('events');
 
@@ -98,6 +99,7 @@ Noptify.prototype.parse = function parse(argv) {
   this.nopt = opts;
 
   this.stdin();
+  this.files();
   return opts;
 };
 
@@ -208,6 +210,25 @@ Noptify.prototype.stdin = function stdin(force, done) {
   return this;
 };
 
+// Read files from remaining args, concat the result and call back the `done`
+// function with the concatanated result and the list of files.
+Noptify.prototype.files = function files(done) {
+  var argv = this.nopt.argv;
+
+  // not parsed, register done to be read when parse is called
+  if(!argv) {
+    this.once('files', done);
+    return this;
+  }
+
+  // only read files when we actually have files to read from
+  if(argv.remain.length) {
+    this.readFiles(argv.remain, done);
+  }
+
+  return this;
+};
+
 Noptify.prototype.readStdin = function readStdin(done) {
   var data = '';
   var self = this;
@@ -217,12 +238,37 @@ Noptify.prototype.readStdin = function readStdin(done) {
   process.stdin.on('data', function(chunk){
     data += chunk;
     self.emit('stdin:data', chunk);
-    self.emit('stdin:data', chunk);
   }).on('end', function(){
     self.emit('stdin', null, data);
     done(null, data);
   }).resume();
   return this;
+};
+
+// Asynchronous walk of the remaining args, reading the content and returns
+// the concatanated result.
+Noptify.prototype.readFiles = function readFiles(filepaths, done) {
+  var data = '';
+  var self = this;
+  var files = filepaths.slice(0);
+  done = done || function(err) { err && self.emit('error', err); };
+  (function read(file) {
+    if(!file) {
+      self.emit('files', null, data, filepaths);
+      return done(null, data, filepaths);
+    }
+    fs.readFile(file, 'utf8', function(err, body) {
+      if(err) return done(err);
+      data += body;
+      self.emit('files:data', body);
+      read(files.shift());
+    });
+  })(files.shift());
+};
+
+// Collect data either from stdin or the list of remaining args
+Noptify.prototype.collect = function collect(done) {
+  return this.stdin(done).files(done);
 };
 
 function pad(str, max) {
