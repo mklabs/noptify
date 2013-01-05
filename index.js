@@ -94,6 +94,8 @@ Noptify.prototype.parse = function parse(argv) {
     process.exit(0);
   }
 
+  this.readStdin();
+
   return opts;
 };
 
@@ -185,6 +187,31 @@ Noptify.prototype.help = function help() {
   console.log(buf);
 };
 
+// Helpers
+
+Noptify.prototype.stdin = function stdin(done) {
+  this._readStdin = true;
+  this.once('stdin', done);
+  return this;
+};
+
+Noptify.prototype.readStdin = function readStdin(done) {
+  var data = '';
+  var self = this;
+  this._readStdin = true;
+  done = done || function(err) { err && self.emit(err); };
+
+  process.stdin.setEncoding('utf8');
+  process.stdin.on('error', done);
+  process.stdin.on('data', function(chunk){
+    data += chunk;
+    self.emit('stdin:data', chunk);
+    self.emit('stdin:data', chunk);
+  }).on('end', function(){
+    self.emit('stdin', data);
+  }).resume();
+  return this;
+};
 
 function pad(str, max) {
   var ln = max - str.length;
