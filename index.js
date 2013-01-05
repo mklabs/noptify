@@ -1,5 +1,6 @@
 
 var nopt   = require('nopt');
+var path   = require('path');
 var util   = require('util');
 var events = require('events');
 
@@ -36,7 +37,9 @@ function Noptify(args, options) {
   events.EventEmitter.call(this);
   options = this.options = options || {};
   this.args = args || process.argv;
-  this.program = options.program || (this.args[this.args[0] === 'node' ? 1 : 0]);
+  this.program = options.program || (path.basename(this.args[this.args[0] === 'node' ? 1 : 0]));
+
+  this._shorthands = {};
 
   this.option('help', '-h', 'Show help usage');
   this.option('version', '-v', 'Show package version');
@@ -131,6 +134,22 @@ Noptify.prototype.option = function option(name, shorthand, description, type) {
   return this;
 };
 
+// Stores the given `shorthands` Hash of options to be `parse()`-d by nopt
+// later on.
+
+Noptify.prototype.shorthand =
+Noptify.prototype.shorthands = function shorthands(options, value) {
+  if(typeof options === 'string' && value) {
+    this._shorthands[options] = value;
+    return this;
+  }
+
+  Object.keys(options).forEach(function(shorthand) {
+    this._shorthands[shorthand] = options[shorthand];
+  }, this);
+  return this;
+};
+
 // Simply output to stdout the Usage and Help output.
 Noptify.prototype.help = function help() {
   var buf = '';
@@ -143,10 +162,24 @@ Noptify.prototype.help = function help() {
   }));
 
   var options = this._options.map(function(opts) {
-    return '    ' + pad(opts.usage, maxln + 5) + ' - ' + opts.description;
+    return '    ' + pad(opts.usage, maxln + 5) + '\t- ' + opts.description;
   });
 
   buf += options.join('\n');
+
+
+  // part of help input ? --list-shorthands ?
+  var shorthands = Object.keys(this._shorthands);
+  if(shorthands.length) {
+    buf += '\n\n  Shorthands:\n';
+    maxln = Math.max.apply(Math, Object.keys(this._shorthands).map(function(key) {
+      return key.length;
+    }));
+    buf += Object.keys(this._shorthands).map(function(shorthand) {
+      return '    --' + pad(shorthand, maxln + 1) + '\t\t' + this._shorthands[shorthand];
+    }, this).join('\n');
+  }
+
   buf += '\n';
 
   console.log(buf);
