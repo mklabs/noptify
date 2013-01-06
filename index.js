@@ -8,6 +8,8 @@ var events = require('events');
 module.exports = noptify;
 noptify.Noptify = Noptify;
 
+// XXX consider splitting the API in multiple mixins: collectable, commandable, etc.
+
 // noptify is a little wrapper around `nopt` module adding a more expressive,
 // commander-like, API and few helpers.
 //
@@ -41,6 +43,9 @@ function Noptify(args, options) {
   this.program = options.program || (path.basename(this.args[this.args[0] === 'node' ? 1 : 0]));
 
   this._shorthands = {};
+  this._commands = {};
+  this._routes = [];
+  this._steps = [];
   this.nopt = {};
 
   this.option('help', '-h', 'Show help usage');
@@ -89,7 +94,6 @@ Noptify.prototype.parse = function parse(argv) {
     process.exit(0);
   }
 
-
   if(opts.help) {
     this.help();
     this.emit('help');
@@ -98,8 +102,11 @@ Noptify.prototype.parse = function parse(argv) {
 
   this.nopt = opts;
 
-  this.stdin();
-  this.files();
+  // check remaining args and registered command, for each match, remove the
+  // argument from remaining args and trigger the handler, ideally the handler
+  // can be another subprogram, for now simple functions
+
+  process.nextTick(this.routeCommand.bind(this));
   return opts;
 };
 
@@ -270,6 +277,76 @@ Noptify.prototype.readFiles = function readFiles(filepaths, done) {
 // Collect data either from stdin or the list of remaining args
 Noptify.prototype.collect = function collect(done) {
   return this.stdin(done).files(done);
+};
+
+// command API
+
+Noptify.prototype.cmd =
+Noptify.prototype.command = function command(name, fn) {
+  this._commands[name] = fn;
+  this.on(name, fn instanceof Noptify ? fn.parse.bind(fn) : fn);
+  return this;
+};
+
+Noptify.prototype.route = function route(pattern, fn) {
+  pattern = pattern instanceof RegExp ? pattern : new RegExp('^' + pattern + '$');
+  this._routes.push({
+    pattern: pattern,
+    fn: fn
+  });
+  return this;
+};
+
+Noptify.prototype.routeCommand = function routeCommand(opts) {
+  opts = opts || this.nopt;
+  var args = opts.argv.remain;
+  var commands = Object.keys(this._commands);
+
+  // firt try to find a route, then fallback to command
+  var route = this._routes.filter(function(route) {
+    return route.pattern.test(args.join(' '));
+  });
+
+  if(route.length) return route[0].fn();
+
+  var first = 0;
+  var registered = args.filter(function(arg, i) {
+    var match = ~commands.indexOf(arg);
+    if(match) first = first || i;
+    return match;
+  });
+
+  if(!registered[0]) return this.run();
+
+  opts.argv.remain = args.slice(0, first);
+  registered.forEach(function(command) {
+    var position = opts.argv.original.indexOf(command);
+    var options = nopt({}, {}, opts.argv.original.slice(position));
+    this.emit(command, options.argv.original, options);
+  }, this);
+};
+
+Noptify.prototype.run = function run(fn) {
+  if(fn) {
+    this._steps.push(fn);
+    return this;
+  }
+
+  var steps = this._steps;
+  var self = this;
+  (function next(step) {
+    if(!step) return;
+    var async = /function\s*\(\w+/.test(step + '');
+    if(!async) {
+      step();
+      return next(steps.shift());
+    }
+
+    step(function(err) {
+      if(err) return self.emit('error', err);
+      next(steps.shift());
+    });
+  })(steps.shift());
 };
 
 function pad(str, max) {
