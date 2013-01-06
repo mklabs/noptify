@@ -78,12 +78,12 @@ Noptify.prototype.parse = function parse(argv) {
     return opts;
   }, {});
 
-  var shorthands = this._options.reduce(function(opts, opt) {
-    if(opt.shorthand) opts[opt.shorthand] = '--' + opt.name;
-    return opts;
-  }, {});
+  this._options.forEach(function(opt) {
+    if(!opt.shorthand) return;
+    this.shorthand(opt.shorthand, '--' + opt.name);
+  }, this);
 
-  var opts = nopt(options, shorthands, argv);
+  var opts = nopt(options, this._shorthands, argv);
   if(opts.version) {
     console.log(this._version);
     process.exit(0);
@@ -264,6 +264,7 @@ Noptify.prototype.readFiles = function readFiles(filepaths, done) {
       read(files.shift());
     });
   })(files.shift());
+  return this;
 };
 
 // Collect data either from stdin or the list of remaining args
