@@ -321,7 +321,7 @@ Noptify.prototype.routeCommand = function routeCommand(opts) {
   opts.argv.remain = args.slice(0, first);
   registered.forEach(function(command) {
     var position = opts.argv.original.indexOf(command);
-    var options = nopt({}, {}, opts.argv.original.slice(position));
+    var options = nopt({}, {}, opts.argv.original, position + 1);
     this.emit(command, options.argv.original, options);
   }, this);
 };
