@@ -150,7 +150,7 @@ Noptify.prototype.option = function option(name, shorthand, description, type) {
   this._options.push({
     name: name,
     shorthand: shorthand.replace(/^-*/, ''),
-    description: description,
+    description: description || (name + ': ' + type.name),
     usage: (shorthand ? '-' + shorthand + ', ': '' ) + '--' + name,
     type: type
   });
