@@ -2,13 +2,14 @@
 var fs     = require('fs');
 var path   = require('path');
 var nopt   = require('nopt');
-var util   = require('util');
+var util   = require('./util');
 var events = require('events');
+
+var collectable = require('./actions/collectable');
+var commandable = require('./actions/commandable');
 
 module.exports = noptify;
 noptify.Noptify = Noptify;
-
-// XXX consider splitting the API in multiple mixins: collectable, commandable, etc.
 
 // noptify is a little wrapper around `nopt` module adding a more expressive,
 // commander-like, API and few helpers.
@@ -53,6 +54,13 @@ function Noptify(args, options) {
 }
 
 util.inherits(Noptify, events.EventEmitter);
+
+// Inherits from each actions' mixins
+//
+// XXX: consider making it optional? with a `.use()` method?
+util.extend(Noptify.prototype, collectable);
+util.extend(Noptify.prototype, commandable);
+
 
 // Parse the provided options and shorthands, pass them through `nopt` and
 // return the result.
@@ -111,7 +119,8 @@ Noptify.prototype.parse = function parse(argv, position) {
   // argument from remaining args and trigger the handler, ideally the handler
   // can be another subprogram, for now simple functions
 
-  process.nextTick(this.routeCommand.bind(this));
+  if(this.routeCommand) process.nextTick(this.routeCommand.bind(this));
+  if(this.stdin && this._readFromStdin) process.nextTick(this.stdin.bind(this));
   return opts;
 };
 
@@ -211,145 +220,7 @@ Noptify.prototype.help = function help() {
 
 // Helpers
 
-Noptify.prototype.stdin = function stdin(force, done) {
-  if(!done) done = force, force = false;
-  var argv = this.nopt.argv;
-
-  // not parsed, register done to be read when parse is called
-  if(!argv) {
-    this.once('stdin', done);
-    return this;
-  }
-
-  // only read from stdin when no reamining args and not forced
-  if(!argv.remain.length || force) {
-    this.readStdin(done);
-  }
-
-  return this;
-};
-
-// Read files from remaining args, concat the result and call back the `done`
-// function with the concatanated result and the list of files.
-Noptify.prototype.files = function files(done) {
-  var argv = this.nopt.argv;
-
-  // not parsed, register done to be read when parse is called
-  if(!argv) {
-    this.once('files', done);
-    return this;
-  }
-
-  // only read files when we actually have files to read from
-  if(argv.remain.length) {
-    this.readFiles(argv.remain, done);
-  }
-
-  return this;
-};
-
-Noptify.prototype.readStdin = function readStdin(done) {
-  var data = '';
-  var self = this;
-  done = done || function(err) { err && self.emit('error', err); };
-  process.stdin.setEncoding('utf8');
-  process.stdin.on('error', done);
-  process.stdin.on('data', function(chunk){
-    data += chunk;
-    self.emit('stdin:data', chunk);
-  }).on('end', function(){
-    self.emit('stdin', null, data);
-    done(null, data);
-  }).resume();
-  return this;
-};
-
-// Asynchronous walk of the remaining args, reading the content and returns
-// the concatanated result.
-Noptify.prototype.readFiles = function readFiles(filepaths, done) {
-  var data = '';
-  var self = this;
-  var files = filepaths.slice(0);
-  done = done || function(err) { err && self.emit('error', err); };
-  (function read(file) {
-    if(!file) {
-      self.emit('files', null, data, filepaths);
-      return done(null, data, filepaths);
-    }
-    fs.readFile(file, 'utf8', function(err, body) {
-      if(err) return done(err);
-      data += body;
-      self.emit('files:data', body);
-      read(files.shift());
-    });
-  })(files.shift());
-  return this;
-};
-
-// Collect data either from stdin or the list of remaining args
-Noptify.prototype.collect = function collect(done) {
-  return this.stdin(done).files(done);
-};
-
 // command API
-
-Noptify.prototype.cmd =
-Noptify.prototype.command = function command(name, fn) {
-  this._commands[name] = fn;
-  this.on(name, fn instanceof Noptify ? function(args) {
-    fn.parse(args, 0);
-    fn.run();
-  } : fn);
-  return this;
-};
-
-Noptify.prototype.route = function route(pattern, fn) {
-  pattern = pattern instanceof RegExp ? pattern : new RegExp('^' + pattern + '$');
-  this._routes.push({
-    pattern: pattern,
-    fn: fn
-  });
-  return this;
-};
-
-Noptify.prototype.routeCommand = function routeCommand(opts) {
-  opts = opts || this.nopt;
-  var args = opts.argv.remain;
-  var commands = Object.keys(this._commands);
-
-  // firt try to find a route, then fallback to command
-  var route = this._routes.filter(function(route) {
-    return route.pattern.test(args.join(' '));
-  });
-
-  if(route.length) return route[0].fn();
-
-  var first = 0;
-  var registered = args.filter(function(arg, i) {
-    var match = ~commands.indexOf(arg);
-    if(match) first = first || i;
-    return match;
-  });
-
-  if(!registered[0]) return this.run();
-
-  opts.argv.remain = args.slice(0, first);
-  registered.forEach(function(command) {
-    var position = opts.argv.original.indexOf(command);
-    var options = nopt({}, {}, opts.argv.original, position + 1);
-    this.emit(command, options.argv.original, options);
-  }, this);
-};
-
-
-Noptify.prototype.registered = function(args) {
-  var commands = Object.keys(this._commands);
-  var registered = args.filter(function(arg, i) {
-    return ~commands.indexOf(arg);
-  });
-
-  return registered.length ? this._commands[registered] : false;
-};
 
 Noptify.prototype.run = function run(fn) {
   if(fn) {

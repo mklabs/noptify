@@ -2,7 +2,7 @@ var noptify = require('..');
 var assert = require('assert');
 
 
-describe('Stdin mixin', function() {
+describe('Collectable', function() {
 
   it('provides the helper method to read from stdin', function() {
     var program = noptify();
