@@ -40,7 +40,7 @@ function Noptify(args, options) {
   events.EventEmitter.call(this);
   options = this.options = options || {};
   this.args = args || process.argv;
-  this.program = options.program || (path.basename(this.args[this.args[0] === 'node' ? 1 : 0]));
+  this._program = options.program || (path.basename(this.args[this.args[0] === 'node' ? 1 : 0]));
 
   this._shorthands = {};
   this._commands = {};
@@ -76,7 +76,7 @@ util.inherits(Noptify, events.EventEmitter);
 //    // ... Exit ...
 //
 //
-Noptify.prototype.parse = function parse(argv) {
+Noptify.prototype.parse = function parse(argv, position) {
   argv = argv || this.args;
   var options = this._options.reduce(function(opts, opt) {
     opts[opt.name] = opt.type;
@@ -88,15 +88,20 @@ Noptify.prototype.parse = function parse(argv) {
     this.shorthand(opt.shorthand, '--' + opt.name);
   }, this);
 
-  var opts = nopt(options, this._shorthands, argv);
+  var opts = nopt(options, this._shorthands, argv, position);
   if(opts.version) {
     console.log(this._version);
     process.exit(0);
   }
 
+  var registered = this.registered(opts.argv.remain);
   if(opts.help) {
-    this.help();
-    this.emit('help');
+    if(registered && registered.help) {
+      registered.help().emit('help');
+    } else {
+      this.help().emit('help');
+    }
+
     process.exit(0);
   }
 
@@ -111,8 +116,14 @@ Noptify.prototype.parse = function parse(argv) {
 };
 
 // Define the program version.
-Noptify.prototype.version = function(ver) {
+Noptify.prototype.version = function version(ver) {
   this._version = ver;
+  return this;
+};
+
+// Define the program property.
+Noptify.prototype.program = function program(value) {
+  this._program = value || '';
   return this;
 };
 
@@ -166,7 +177,7 @@ Noptify.prototype.shorthands = function shorthands(options, value) {
 // Simply output to stdout the Usage and Help output.
 Noptify.prototype.help = function help() {
   var buf = '';
-  buf += '\n  Usage: ' + this.program + ' [options]';
+  buf += '\n  Usage: ' + this._program + ' [options]';
   buf += '\n';
   buf += '\n  Options:\n';
 
@@ -195,6 +206,7 @@ Noptify.prototype.help = function help() {
   buf += '\n';
 
   console.log(buf);
+  return this;
 };
 
 // Helpers
@@ -284,7 +296,10 @@ Noptify.prototype.collect = function collect(done) {
 Noptify.prototype.cmd =
 Noptify.prototype.command = function command(name, fn) {
   this._commands[name] = fn;
-  this.on(name, fn instanceof Noptify ? fn.parse.bind(fn) : fn);
+  this.on(name, fn instanceof Noptify ? function(args) {
+    fn.parse(args, 0);
+    fn.run();
+  } : fn);
   return this;
 };
 
@@ -326,11 +341,23 @@ Noptify.prototype.routeCommand = function routeCommand(opts) {
   }, this);
 };
 
+
+Noptify.prototype.registered = function(args) {
+  var commands = Object.keys(this._commands);
+  var registered = args.filter(function(arg, i) {
+    return ~commands.indexOf(arg);
+  });
+
+  return registered.length ? this._commands[registered] : false;
+};
+
 Noptify.prototype.run = function run(fn) {
   if(fn) {
     this._steps.push(fn);
     return this;
   }
+
+  if(!this.nopt.argv) return this.parse();
 
   var steps = this._steps;
   var self = this;
