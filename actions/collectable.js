@@ -1,4 +1,6 @@
 
+var fs = require('fs');
+
 // Collectable Mixin
 //
 // Provides utility methods to read from stdin and remaining arguments.

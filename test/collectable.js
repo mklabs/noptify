@@ -25,4 +25,16 @@ describe('Collectable', function() {
     });
   });
 
+
+  it('.files()', function(done) {
+    var program = noptify(['', '', 'test/fixtures/a.js', 'test/fixtures/b.js']);
+    program.parse();
+
+    program.files(function(err, data) {
+      assert.equal(data, 'a\nb\n');
+      done();
+    });
+
+  });
+
 });
